@@ -1,0 +1,7 @@
+*
+
+!.*
+!Makefile
+
+*.o
+from-scratch-client.c
