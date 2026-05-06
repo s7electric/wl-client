@@ -120,6 +120,7 @@ int main(int argc, char** argv) {
         WL_SHM_FORMAT_ABGR8888
     );
     state.buffer1.data = (uint32_t*)&data[offset];
+    state.buffer1.busy = false;
 
     
     state.surface = wl_compositor_create_surface(state.compositor);

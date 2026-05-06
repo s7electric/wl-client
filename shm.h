@@ -5,7 +5,7 @@
 #include <time.h>
 #include <unistd.h>
 
-inline int create_shm_file(size_t size) {
+int create_shm_file(size_t size) {
     int fd;
 	int retries = 100;
 	do {
