@@ -4,9 +4,11 @@
 #include <sys/mman.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <wayland-client-core.h>
 #include <wayland-client-protocol.h>
 #include <wayland-client.h>
 
+#include "xdg.h"
 #include "shm.h"
 
 #define log(message) fprintf(stderr, message)
@@ -28,6 +30,20 @@ struct state_t {
     struct wl_shm_pool* shm_pool;
     struct buffer_t buffer1;
     struct buffer_t buffer2;
+    struct xdg_wm_base* xdg_wm_base;
+    struct xdg_surface* xdg_surface;
+    uint32_t configure_serial;
+    struct xdg_toplevel* xdg_toplevel;
+};
+
+//####################
+// wl_display_handlers
+//####################
+static void wl_display_handle_error(void* data, struct wl_display* display, void* object, uint32_t code, const char* errormsg) {
+    fprintf(stderr, "ERROR RECEIVED: code %d: %s", code, errormsg);
+}
+static const struct wl_display_listener display_listener = {
+    .error = wl_display_handle_error
 };
 
 
@@ -44,29 +60,96 @@ static const struct wl_shm_listener shm_listener = {
 };
 
 
+//###################
+// wl_buffer handlers
+//###################
+static void buffer_handle_release(void* data, struct wl_buffer* buffer) {
+    struct state_t* state = data;
+    if (state->buffer1.buffer == buffer) {
+        state->buffer1.busy = false;
+    }
+    else {
+        state->buffer2.busy = false;
+    }
+}
+static const struct wl_buffer_listener buffer_listener = {
+    .release = buffer_handle_release
+};
+
+
+//#####################
+// xdg_wm_base handlers
+//#####################
+static void xdg_wm_base_handle_ping(void* data, struct xdg_wm_base* xdg_wm_base, uint32_t serial) {
+    struct state_t* state = data;
+    log("Ping\n");
+    xdg_wm_base_pong(state->xdg_wm_base, serial);
+    wl_display_flush(state->display);
+    log("Pong\n");
+}
+static const struct xdg_wm_base_listener xdg_wm_base_listener = {
+    .ping = xdg_wm_base_handle_ping
+};
+
+
+//#####################
+// xdg_surface_handlers
+//#####################
+static void xdg_surface_handle_configure(void* data, struct xdg_surface *xdg_surface, uint32_t serial) {
+    struct state_t* state = data;
+    state->configure_serial = serial;
+    // TODO
+}
+static struct xdg_surface_listener xdg_surface_listener = {
+    .configure = xdg_surface_handle_configure
+};
+
+
 //#####################
 // wl_registry handlers
 //#####################
-static void registry_handle_global(void* data, struct wl_registry* registry, 
+static void registry_handle_globals(void* data, struct wl_registry* registry, 
                                 uint32_t name, const char* interface, uint32_t version) {
     struct state_t* state = data;
     printf("interface: %s, version: %d, name: %d\n", interface, version, name);
     
     if (!strcmp(interface, wl_compositor_interface.name)) {
-        state->compositor = wl_registry_bind(state->registry, name, &wl_compositor_interface, version);
-    
+        state->compositor = wl_registry_bind(
+            state->registry, 
+            name, 
+            &wl_compositor_interface, 
+            version
+        );
     }
     else if (!strcmp(interface, wl_shm_interface.name)) {
         state->shm = wl_registry_bind(
             state->registry, 
             name, 
             &wl_shm_interface, 
-            version);
-        wl_shm_add_listener(state->shm, &shm_listener, data);
+            version
+        );
+        wl_shm_add_listener(
+            state->shm, 
+            &shm_listener, 
+            data
+        );
+    }
+    else if (!strcmp(interface, xdg_wm_base_interface.name)) {
+        state->xdg_wm_base = wl_registry_bind(
+            state->registry, 
+            name, 
+            &xdg_wm_base_interface, 
+            version
+        );
+        xdg_wm_base_add_listener(
+            state->xdg_wm_base,
+            &xdg_wm_base_listener, 
+            &state
+        );
     }
 }
 static const struct wl_registry_listener registry_listener = {
-    .global = registry_handle_global
+    .global = registry_handle_globals
 };
 
 int main(int argc, char** argv) {
@@ -79,25 +162,37 @@ int main(int argc, char** argv) {
     log("Connected to display\n");
 
     state.registry = wl_display_get_registry(state.display);
-    log("Got handle to registry\n");
-
+    
     wl_registry_add_listener(
         state.registry, 
         &registry_listener, 
         &state
     );
     wl_display_roundtrip(state.display);
-    log("Got handle to compositor, shm\n");
+    log("Got handle to registry\n");
+    wl_display_roundtrip(state.display);
+    log("Got handle to compositor & shm & xdg_wm_base\n");
+    wl_display_roundtrip(state.display);
+
+    state.xdg_surface = xdg_wm_base_get_xdg_surface(state.xdg_wm_base, state.surface);
+    xdg_surface_add_listener(state.xdg_surface, &xdg_surface_listener, &state);
+    state.xdg_toplevel = xdg_surface_get_toplevel(state.xdg_surface);
+    xdg_toplevel_set_title(state.xdg_toplevel, "Hello World");
+    xdg_toplevel_set_app_id(state.xdg_toplevel, "test-window");
+    wl_display_roundtrip(state.display);
+    log("Got handle to xdg_surface and toplevel\n");
+
+    state.surface = wl_compositor_create_surface(state.compositor);
     wl_display_roundtrip(state.display);
     log("Read supported colour formats\n");
     
     const int width = 1280;
     const int height = 720;
     const int pixel_size = 4; // ARGB 32 bit
-    const int pool_size = 2 * height * width * pixel_size;
-
+    const int pool_size = height * width * pixel_size;
     int shm_fd = create_shm_file(pool_size);
-    uint8_t* data = mmap(
+    log("Created shm file\n");
+    uint8_t* pixel_data = mmap(
         NULL, 
         pool_size, 
         PROT_READ | PROT_WRITE, 
@@ -105,13 +200,34 @@ int main(int argc, char** argv) {
         shm_fd, 
         0
     );
+    if (pixel_data == MAP_FAILED) {
+        log("Failed to map shm file, bailing out\n");
+        return 1;
+    }
+    else {
+        log("Mapped shm file\n");
+    }
     state.shm_pool = wl_shm_create_pool(state.shm, shm_fd, pool_size);
+    wl_display_roundtrip(state.display);
+    log("Created shm pool\n");
 
     struct buffer_t buffer1, buffer2;
     state.buffer1 = buffer1;
     state.buffer2 = buffer2;
     int offset = pool_size / 2;
+    // Buffer 1
     state.buffer1.buffer = wl_shm_pool_create_buffer(
+        state.shm_pool, 
+        0, 
+        width, 
+        height, 
+        width * pixel_size, 
+        WL_SHM_FORMAT_ABGR8888
+    );
+    wl_display_roundtrip(state.display);
+    log("Created buffer 1\n");
+    // Buffer 2 @ offset
+    state.buffer2.buffer = wl_shm_pool_create_buffer(
         state.shm_pool, 
         offset, 
         width, 
@@ -119,12 +235,27 @@ int main(int argc, char** argv) {
         width * pixel_size, 
         WL_SHM_FORMAT_ABGR8888
     );
-    state.buffer1.data = (uint32_t*)&data[offset];
+    wl_display_roundtrip(state.display);
+    log("Created buffer 2\n");
+    
+    state.buffer1.data = (uint32_t*) &pixel_data;
     state.buffer1.busy = false;
+    wl_buffer_add_listener(state.buffer1.buffer, &buffer_listener, &state);
+    state.buffer2.data = (uint32_t*) &pixel_data[offset];
+    state.buffer2.busy = false;
+    wl_buffer_add_listener(state.buffer2.buffer, &buffer_listener, &state);
+
+    // memset(state.buffer1.data, (char)1, width * height * pixel_size);
+    wl_surface_attach(state.surface, state.buffer1.buffer, 0, 0);
+    wl_surface_damage(state.surface, 0, 0, UINT32_MAX, UINT32_MAX);
+    wl_surface_commit(state.surface);
+
+    wl_display_roundtrip(state.display);
 
     
-    state.surface = wl_compositor_create_surface(state.compositor);
 
+
+    fgetc(stdin);
 
     wl_display_disconnect(state.display);
     log("Disconnected from display\n");
