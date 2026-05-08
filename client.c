@@ -15,7 +15,7 @@
 #define VERSION_MIN (version > 4 ? version : 4)
 
 struct buffer_t {
-    struct wl_buffer* buffer;
+    struct wl_buffer* wl_buffer;
     uint32_t* data;
     bool busy;
 };
@@ -32,9 +32,13 @@ struct state_t {
     struct buffer_t buffer2;
     struct xdg_wm_base* xdg_wm_base;
     struct xdg_surface* xdg_surface;
-    uint32_t configure_serial;
     struct xdg_toplevel* xdg_toplevel;
 };
+
+
+void attach_pixel_buffer(void* buf) {
+
+}
 
 //####################
 // wl_display_handlers
@@ -65,7 +69,7 @@ static const struct wl_shm_listener shm_listener = {
 //###################
 static void buffer_handle_release(void* data, struct wl_buffer* buffer) {
     struct state_t* state = data;
-    if (state->buffer1.buffer == buffer) {
+    if (state->buffer1.wl_buffer == buffer) {
         state->buffer1.busy = false;
     }
     else {
@@ -97,8 +101,9 @@ static const struct xdg_wm_base_listener xdg_wm_base_listener = {
 //#####################
 static void xdg_surface_handle_configure(void* data, struct xdg_surface *xdg_surface, uint32_t serial) {
     struct state_t* state = data;
-    state->configure_serial = serial;
-    // TODO
+    xdg_surface_ack_configure(state->xdg_surface, serial);
+    
+
 }
 static struct xdg_surface_listener xdg_surface_listener = {
     .configure = xdg_surface_handle_configure
@@ -189,7 +194,7 @@ int main(int argc, char** argv) {
     const int width = 1280;
     const int height = 720;
     const int pixel_size = 4; // ARGB 32 bit
-    const int pool_size = height * width * pixel_size;
+    const int pool_size = 2 * height * width * pixel_size;
     int shm_fd = create_shm_file(pool_size);
     log("Created shm file\n");
     uint8_t* pixel_data = mmap(
@@ -216,7 +221,7 @@ int main(int argc, char** argv) {
     state.buffer2 = buffer2;
     int offset = pool_size / 2;
     // Buffer 1
-    state.buffer1.buffer = wl_shm_pool_create_buffer(
+    state.buffer1.wl_buffer = wl_shm_pool_create_buffer(
         state.shm_pool, 
         0, 
         width, 
@@ -224,10 +229,9 @@ int main(int argc, char** argv) {
         width * pixel_size, 
         WL_SHM_FORMAT_ABGR8888
     );
-    wl_display_roundtrip(state.display);
     log("Created buffer 1\n");
     // Buffer 2 @ offset
-    state.buffer2.buffer = wl_shm_pool_create_buffer(
+    state.buffer2.wl_buffer = wl_shm_pool_create_buffer(
         state.shm_pool, 
         offset, 
         width, 
@@ -235,18 +239,17 @@ int main(int argc, char** argv) {
         width * pixel_size, 
         WL_SHM_FORMAT_ABGR8888
     );
-    wl_display_roundtrip(state.display);
     log("Created buffer 2\n");
     
     state.buffer1.data = (uint32_t*) &pixel_data;
     state.buffer1.busy = false;
-    wl_buffer_add_listener(state.buffer1.buffer, &buffer_listener, &state);
+    wl_buffer_add_listener(state.buffer1.wl_buffer, &buffer_listener, &state);
     state.buffer2.data = (uint32_t*) &pixel_data[offset];
     state.buffer2.busy = false;
-    wl_buffer_add_listener(state.buffer2.buffer, &buffer_listener, &state);
+    wl_buffer_add_listener(state.buffer2.wl_buffer, &buffer_listener, &state);
 
     // memset(state.buffer1.data, (char)1, width * height * pixel_size);
-    wl_surface_attach(state.surface, state.buffer1.buffer, 0, 0);
+    wl_surface_attach(state.surface, state.buffer1.wl_buffer, 0, 0);
     wl_surface_damage(state.surface, 0, 0, UINT32_MAX, UINT32_MAX);
     wl_surface_commit(state.surface);
 
