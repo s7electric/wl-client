@@ -139,12 +139,12 @@ static void registry_handle_globals(void* data, struct wl_registry* registry,
             state->registry, 
             name, 
             &xdg_wm_base_interface, 
-            version
+            1
         );
         xdg_wm_base_add_listener(
             state->xdg_wm_base,
             &xdg_wm_base_listener, 
-            &state
+            data
         );
     }
 }
@@ -159,10 +159,10 @@ int main(int argc, char** argv) {
         log("Failed to connect to display\n");
         return 1;
     }
+    wl_display_add_listener(state.display, &display_listener, &state);
     log("Connected to display\n");
 
     state.registry = wl_display_get_registry(state.display);
-    
     wl_registry_add_listener(
         state.registry, 
         &registry_listener, 
@@ -170,9 +170,11 @@ int main(int argc, char** argv) {
     );
     wl_display_roundtrip(state.display);
     log("Got handle to registry\n");
-    wl_display_roundtrip(state.display);
     log("Got handle to compositor & shm & xdg_wm_base\n");
+
+    state.surface = wl_compositor_create_surface(state.compositor);
     wl_display_roundtrip(state.display);
+    log("Read supported colour formats\n");
 
     state.xdg_surface = xdg_wm_base_get_xdg_surface(state.xdg_wm_base, state.surface);
     xdg_surface_add_listener(state.xdg_surface, &xdg_surface_listener, &state);
@@ -182,9 +184,7 @@ int main(int argc, char** argv) {
     wl_display_roundtrip(state.display);
     log("Got handle to xdg_surface and toplevel\n");
 
-    state.surface = wl_compositor_create_surface(state.compositor);
     wl_display_roundtrip(state.display);
-    log("Read supported colour formats\n");
     
     const int width = 1280;
     const int height = 720;
