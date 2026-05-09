@@ -1,1 +1,1 @@
-int create_shm_file(int);
+int create_shm_file(int nbytes);
