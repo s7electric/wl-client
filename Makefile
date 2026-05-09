@@ -1,11 +1,11 @@
 FLAGS = -Wall -g
-all: client
+all: app
 
-client: client.o xdg.o shm.o
-	gcc $(FLAGS) $^ -o client -lwayland-client
+app: app.o client.o xdg.o shm.o
+	gcc $(FLAGS) $^ -o app -lwayland-client
 
 %.o: %.c
 	gcc $(FLAGS) $< -c -o $@
 
 clean:
-	rm client *.o
+	rm app *.o

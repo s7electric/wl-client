@@ -1,3 +1,5 @@
+#include <stddef.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -10,9 +12,7 @@
 
 #include "xdg.h"
 #include "shm.h"
-
-#define OLIVEC_IMPLEMENTATION
-#include "olive.c"
+#include "client.h"
 
 #define log(message) fprintf(stderr, message)
 #define VERSION_MIN (version > 4 ? version : 4)
@@ -36,16 +36,14 @@ struct state_t {
     struct wl_shm_pool* shm_pool;
     struct buffer_t buffer1;
     struct buffer_t buffer2;
+    struct buffer_t pending_buffer;
     struct xdg_wm_base* xdg_wm_base;
     struct xdg_surface* xdg_surface;
     struct xdg_toplevel* xdg_toplevel;
+    uint32_t last_frame_ms;
+    void (*draw_frame)(void* pixel_buffer);
 };
 
-
-void present_pixel_matrix(struct state_t* state, void* pixel_matrix) {
-    struct buffer_t* working_buffer = state->buffer1.busy ? &state->buffer2 : &state->buffer1;
-
-}
 
 //####################
 // wl_display_handlers
@@ -114,7 +112,7 @@ static void xdg_surface_handle_configure(void* data, struct xdg_surface *xdg_sur
     xdg_surface_ack_configure(state->xdg_surface, serial);
     // struct buffer_t* working_buffer = state->buffer1.busy ? &state->buffer2 : &state->buffer1;
     struct buffer_t* working_buffer;
-    if (state->buffer1.busy) {
+    if (!state->buffer1.busy) {
         working_buffer = &state->buffer1;
         log("Configuring buffer 1\n");
     }
@@ -123,20 +121,7 @@ static void xdg_surface_handle_configure(void* data, struct xdg_surface *xdg_sur
         log("Configuring buffer 2\n");
     }
 
-    // memset(working_buffer->data, 0xFF, state->height * state->width * PIXEL_SIZE);
-
-    Olivec_Canvas oc = olivec_canvas(
-        working_buffer->data, 
-        state->width, 
-        state->height, 
-        state->width
-    );
-    log("Created oc canvas\n");
-    olivec_fill(oc, 0xFFFFFFFF);
-    log("Filled oc canvas\n");
-    olivec_circle(oc, state->width/2, state->height/2, 10, 0xFFFF0000);
-    log("Drew circle on oc canvas\n");
-
+    state->draw_frame(working_buffer->data);
 
     wl_surface_attach(state->surface, working_buffer->wl_buffer, 0, 0);
     wl_surface_damage_buffer(state->surface, 0, 0, UINT32_MAX, UINT32_MAX);
@@ -147,6 +132,19 @@ static struct xdg_surface_listener xdg_surface_listener = {
     .configure = xdg_surface_handle_configure
 };
 
+
+//#####################
+// wl_callback handlers
+//#####################
+static void wl_callback_handle_done(void* data, struct wl_callback* callback, uint32_t callback_data) {
+    wl_callback_destroy(callback);
+    struct state_t* state = data;
+
+    state->last_frame_ms = callback_data;
+}
+static struct wl_callback_listener callback_listener = {
+    .done = wl_callback_handle_done
+};
 
 //#####################
 // wl_registry handlers
@@ -195,44 +193,45 @@ static const struct wl_registry_listener registry_listener = {
     .global = registry_handle_globals
 };
 
-int main(int argc, char** argv) {
-    struct state_t state = {0};
-    state.display = wl_display_connect(NULL);
-    if (state.display == NULL) {
+
+struct state_t* init(int width, int height) {
+    struct state_t* state = malloc(sizeof(struct state_t));
+    state->display = wl_display_connect(NULL);
+    if (state->display == NULL) {
         log("Failed to connect to display\n");
-        return 1;
+        return NULL;
     }
-    wl_display_add_listener(state.display, &display_listener, &state);
+    wl_display_add_listener(state->display, &display_listener, state);
     log("Connected to display\n");
 
-    state.registry = wl_display_get_registry(state.display);
+    state->registry = wl_display_get_registry(state->display);
     wl_registry_add_listener(
-        state.registry, 
+        state->registry, 
         &registry_listener, 
-        &state
+        state
     );
-    wl_display_roundtrip(state.display);
+    wl_display_roundtrip(state->display);
     log("Got handle to registry\n");
     log("Got handle to compositor & shm & xdg_wm_base\n");
 
-    state.surface = wl_compositor_create_surface(state.compositor);
-    state.xdg_surface = xdg_wm_base_get_xdg_surface(state.xdg_wm_base, state.surface);
-    xdg_surface_add_listener(state.xdg_surface, &xdg_surface_listener, &state);
-    state.xdg_toplevel = xdg_surface_get_toplevel(state.xdg_surface);
-    xdg_toplevel_set_title(state.xdg_toplevel, "Hello World");
-    xdg_toplevel_set_app_id(state.xdg_toplevel, "test-window");
+    state->surface = wl_compositor_create_surface(state->compositor);
+    state->xdg_surface = xdg_wm_base_get_xdg_surface(state->xdg_wm_base, state->surface);
+    xdg_surface_add_listener(state->xdg_surface, &xdg_surface_listener, state);
+    state->xdg_toplevel = xdg_surface_get_toplevel(state->xdg_surface);
+    xdg_toplevel_set_title(state->xdg_toplevel, "Hello World");
+    xdg_toplevel_set_app_id(state->xdg_toplevel, "test-window");
     log("Created xdg_surface and xdg_toplevel\n");
-    wl_surface_commit(state.surface);
+    wl_surface_commit(state->surface);
     
     /* Create and map shared memory space */
-    state.width = 400;
-    state.height = 400;
+    state->width = width;
+    state->height = height;
     const int pixel_size = PIXEL_SIZE; // ARGB 32 bit hardcoded
-    const int pool_size = 2 * state.height * state.width * pixel_size;
+    const int pool_size = 2 * state->height * state->width * pixel_size;
     int shm_fd = create_shm_file(pool_size);
     if (shm_fd == -1) {
         log("Failed to create shm file, terminating client\n");
-        return 1;
+        return NULL;
     }
     else {
         log("Created shm file\n");
@@ -247,55 +246,57 @@ int main(int argc, char** argv) {
     );
     if (pixel_data == MAP_FAILED) {
         log("Failed to map shm file, bailing out\n");
-        return 1;
+        return NULL;
     }
     else {
         log("Mapped shm file\n");
     }
-    state.shm_pool = wl_shm_create_pool(state.shm, shm_fd, pool_size);
+    state->shm_pool = wl_shm_create_pool(state->shm, shm_fd, pool_size);
     log("Created shm pool\n");
 
     /* Initialize two buffers*/
     struct buffer_t buffer1 = {0}, buffer2 = {0};
-    state.buffer1 = buffer1;
-    state.buffer2 = buffer2;
+    state->buffer1 = buffer1;
+    state->buffer2 = buffer2;
     int offset = pool_size / 2;
     // Buffer 1
-    state.buffer1.wl_buffer = wl_shm_pool_create_buffer(
-        state.shm_pool, 
+    state->buffer1.wl_buffer = wl_shm_pool_create_buffer(
+        state->shm_pool, 
         0, 
-        state.width, 
-        state.height, 
-        state.width * pixel_size, 
+        state->width, 
+        state->height, 
+        state->width * pixel_size, 
         WL_SHM_FORMAT_ARGB8888
     );
-    state.buffer1.data = (uint32_t*) pixel_data;
-    state.buffer1.busy = false;
-    wl_buffer_add_listener(state.buffer1.wl_buffer, &buffer_listener, &state);
+    state->buffer1.data = (uint32_t*) pixel_data;
+    state->buffer1.busy = false;
+    wl_buffer_add_listener(state->buffer1.wl_buffer, &buffer_listener, state);
     log("Created buffer 1\n");
     // Buffer 2 @ offset
-    state.buffer2.wl_buffer = wl_shm_pool_create_buffer(
-        state.shm_pool, 
+    state->buffer2.wl_buffer = wl_shm_pool_create_buffer(
+        state->shm_pool, 
         offset, 
-        state.width, 
-        state.height, 
-        state.width * pixel_size, 
+        state->width, 
+        state->height, 
+        state->width * pixel_size, 
         WL_SHM_FORMAT_ARGB8888
     );
-    state.buffer2.data = (uint32_t*) &pixel_data[offset];
-    state.buffer2.busy = false;
-    wl_buffer_add_listener(state.buffer2.wl_buffer, &buffer_listener, &state);
+    state->buffer2.data = (uint32_t*) &pixel_data[offset];
+    state->buffer2.busy = false;
+    wl_buffer_add_listener(state->buffer2.wl_buffer, &buffer_listener, state);
     log("Created buffer 2\n");
+    return state;
+}
 
-    wl_display_roundtrip(state.display);
+void install_frame_drawer(struct state_t* state, void (*frame_drawer)(void* pixel_buffer)) {
+    state->draw_frame = frame_drawer;
+}
 
-    while(wl_display_dispatch(state.display)) {
+int dispatch_events(struct state_t* state) {
+    return wl_display_dispatch(state->display);
+}
 
-    }
-
-
-    fgetc(stdin);
-
-    wl_display_disconnect(state.display);
+void disconnect(struct state_t* state) {
     log("Disconnected from display\n");
+    wl_display_disconnect(state->display);
 }
