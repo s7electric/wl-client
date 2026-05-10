@@ -95,7 +95,6 @@ static void xdg_wm_base_handle_ping(void* data, struct xdg_wm_base* xdg_wm_base,
     struct state_t* state = data;
     log("Ping\n");
     xdg_wm_base_pong(state->xdg_wm_base, serial);
-    wl_display_flush(state->display);
     log("Pong\n");
 }
 static const struct xdg_wm_base_listener xdg_wm_base_listener = {
@@ -122,9 +121,10 @@ static void xdg_surface_handle_configure(void* data, struct xdg_surface *xdg_sur
     }
 
     state->draw_frame(working_buffer->data);
+    log("Called draw_frame function\n");
 
     wl_surface_attach(state->surface, working_buffer->wl_buffer, 0, 0);
-    wl_surface_damage_buffer(state->surface, 0, 0, UINT32_MAX, UINT32_MAX);
+    wl_surface_damage_buffer(state->surface, 0, 0, INT32_MAX, INT32_MAX);
     wl_surface_commit(state->surface);
     working_buffer->busy = true;
 }
@@ -137,8 +137,17 @@ static struct xdg_surface_listener xdg_surface_listener = {
 // wl_callback handlers
 //#####################
 static void wl_callback_handle_done(void* data, struct wl_callback* callback, uint32_t callback_data) {
+    log("Received 'done' callback\n");
     wl_callback_destroy(callback);
     struct state_t* state = data;
+
+    struct buffer_t* working_buffer = state->buffer1.busy ? &state->buffer2 : &state->buffer1;
+    state->draw_frame(working_buffer->data);
+    log("Called draw_frame function\n");
+    wl_surface_attach(state->surface, working_buffer->wl_buffer, 0, 0);
+    wl_surface_damage_buffer(state->surface, 0, 0, INT32_MAX, INT32_MAX);
+    wl_surface_commit(state->surface);
+    working_buffer->busy = true;
 
     state->last_frame_ms = callback_data;
 }
@@ -290,6 +299,12 @@ struct state_t* init(int width, int height) {
 
 void install_frame_drawer(struct state_t* state, void (*frame_drawer)(void* pixel_buffer)) {
     state->draw_frame = frame_drawer;
+}
+
+void request_new_frame(struct state_t* state) {
+    struct wl_callback* cb = wl_surface_frame(state->surface);
+    log("Sent frame request\n");
+    wl_callback_add_listener(cb, &callback_listener, state);
 }
 
 int dispatch_events(struct state_t* state) {
