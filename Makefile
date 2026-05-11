@@ -9,3 +9,6 @@ app: app.o client.o xdg.o shm.o
 
 clean:
 	rm app *.o
+
+lib: client.o xdg.o shm.o
+	ar rcs libwlclient.a client.o xdg.o shm.o
