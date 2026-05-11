@@ -8,7 +8,8 @@
 
 #define WIDTH 400
 #define HEIGHT 400
-#define FPS 20
+#define FPS 60
+#define delta_time_ms (1000/FPS)
 
 #define log(message) fprintf(stderr, message)
 
@@ -45,9 +46,17 @@ void put_pixels(void* pixel_buffer) {
 int main() {
     struct state_t* state = init(WIDTH, HEIGHT);
     install_frame_drawer(state, put_pixels);
+    request_new_frame(state);
+    int prev_time_ms = get_last_frame_time_ms(state);
 
     while(dispatch_events(state)) {
-        angle += 0.05;
+        angle += 2*M_PI/FPS;
+        int curr_time_ms = get_last_frame_time_ms(state);
+        fprintf(stderr, "%d", curr_time_ms);
+        if (curr_time_ms - prev_time_ms <= delta_time_ms) {
+            usleep(1000*(delta_time_ms - (curr_time_ms - prev_time_ms)));
+        }
+        prev_time_ms = curr_time_ms;
         request_new_frame(state);
         log("Incremented angle\n");
     }

@@ -307,6 +307,10 @@ void request_new_frame(struct state_t* state) {
     wl_callback_add_listener(cb, &callback_listener, state);
 }
 
+int get_last_frame_time_ms(struct state_t* state) {
+    return state->last_frame_ms;
+}
+
 int dispatch_events(struct state_t* state) {
     return wl_display_dispatch(state->display);
 }
