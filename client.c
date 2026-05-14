@@ -303,6 +303,10 @@ void install_frame_drawer(struct state_t* state, void (*frame_drawer)(void* pixe
     state->draw_frame = frame_drawer;
 }
 
+bool ready_for_frame(struct state_t* state) {
+    return state->frame_done;
+}
+
 void request_new_frame(struct state_t* state) {
     state->frame_done = false;
     struct wl_callback* cb = wl_surface_frame(state->surface);

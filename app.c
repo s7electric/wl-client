@@ -1,7 +1,9 @@
-#include "client.h"
 #include <math.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <stdbool.h>
+
+#include "client.h"
 
 #define OLIVEC_IMPLEMENTATION
 #include "olive.c"
