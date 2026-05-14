@@ -41,6 +41,7 @@ struct state_t {
     struct xdg_surface* xdg_surface;
     struct xdg_toplevel* xdg_toplevel;
     uint32_t last_frame_ms;
+    bool frame_done;
     void (*draw_frame)(void* pixel_buffer);
 };
 
@@ -140,6 +141,7 @@ static void wl_callback_handle_done(void* data, struct wl_callback* callback, ui
     log("Received 'done' callback\n");
     wl_callback_destroy(callback);
     struct state_t* state = data;
+    state->frame_done = true;
 
     struct buffer_t* working_buffer = state->buffer1.busy ? &state->buffer2 : &state->buffer1;
     state->draw_frame(working_buffer->data);
@@ -302,6 +304,7 @@ void install_frame_drawer(struct state_t* state, void (*frame_drawer)(void* pixe
 }
 
 void request_new_frame(struct state_t* state) {
+    state->frame_done = false;
     struct wl_callback* cb = wl_surface_frame(state->surface);
     log("Sent frame request\n");
     wl_callback_add_listener(cb, &callback_listener, state);
