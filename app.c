@@ -10,8 +10,9 @@
 
 #define WIDTH 400
 #define HEIGHT 400
-#define FPS 60
-#define delta_time_ms (1000/FPS)
+#define FPS 144
+#define RPM 2
+#define delta_time_ms (RPM * 1000/FPS)
 
 #define log(message) fprintf(stderr, message)
 
@@ -52,15 +53,16 @@ int main() {
     int prev_time_ms = get_last_frame_time_ms(state);
 
     while(dispatch_events(state)) {
+        // int curr_time_ms = get_last_frame_time_ms(state);
+        // fprintf(stderr, "%d", curr_time_ms);
+        // if (curr_time_ms - prev_time_ms <= delta_time_ms) {
+        //     usleep(1000*(delta_time_ms - (curr_time_ms - prev_time_ms)));
+        // }
+        // prev_time_ms = curr_time_ms;
         angle += 2*M_PI/FPS;
-        int curr_time_ms = get_last_frame_time_ms(state);
-        fprintf(stderr, "%d", curr_time_ms);
-        if (curr_time_ms - prev_time_ms <= delta_time_ms) {
-            usleep(1000*(delta_time_ms - (curr_time_ms - prev_time_ms)));
-        }
-        prev_time_ms = curr_time_ms;
-        request_new_frame(state);
         log("Incremented angle\n");
+        usleep(1000*delta_time_ms);
+        request_new_frame(state);
     }
 
     disconnect(state);

@@ -5,7 +5,6 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <stdbool.h>
-#include <unistd.h>
 #include <wayland-client-core.h>
 #include <wayland-client-protocol.h>
 #include <wayland-client.h>
@@ -41,9 +40,28 @@ struct state_t {
     struct xdg_surface* xdg_surface;
     struct xdg_toplevel* xdg_toplevel;
     uint32_t last_frame_ms;
-    bool frame_done;
+    bool can_request_frame;
     void (*draw_frame)(void* pixel_buffer);
 };
+
+
+void choose_buffer_and_commit(struct state_t* state) {
+    struct buffer_t* working_buffer;
+    if (!state->buffer1.busy) {
+        working_buffer = &state->buffer1;
+        log("Writing to buffer 1\n");
+    }
+    else {
+        working_buffer = &state->buffer2;
+        log("Writing to buffer 2\n");
+    }
+    state->draw_frame(working_buffer->data);
+    log("Called draw_frame function\n");
+    wl_surface_attach(state->surface, working_buffer->wl_buffer, 0, 0);
+    wl_surface_damage_buffer(state->surface, 0, 0, INT32_MAX, INT32_MAX);
+    wl_surface_commit(state->surface);
+    working_buffer->busy = true;
+}
 
 
 //####################
@@ -104,58 +122,35 @@ static const struct xdg_wm_base_listener xdg_wm_base_listener = {
 
 
 //#####################
-// xdg_surface_handlers
-//#####################
-static void xdg_surface_handle_configure(void* data, struct xdg_surface *xdg_surface, uint32_t serial) {
-    struct state_t* state = data;
-    log("Received configure event\n");
-    xdg_surface_ack_configure(state->xdg_surface, serial);
-    // struct buffer_t* working_buffer = state->buffer1.busy ? &state->buffer2 : &state->buffer1;
-    struct buffer_t* working_buffer;
-    if (!state->buffer1.busy) {
-        working_buffer = &state->buffer1;
-        log("Configuring buffer 1\n");
-    }
-    else {
-        working_buffer = &state->buffer2;
-        log("Configuring buffer 2\n");
-    }
-
-    state->draw_frame(working_buffer->data);
-    log("Called draw_frame function\n");
-
-    wl_surface_attach(state->surface, working_buffer->wl_buffer, 0, 0);
-    wl_surface_damage_buffer(state->surface, 0, 0, INT32_MAX, INT32_MAX);
-    wl_surface_commit(state->surface);
-    working_buffer->busy = true;
-}
-static struct xdg_surface_listener xdg_surface_listener = {
-    .configure = xdg_surface_handle_configure
-};
-
-
-//#####################
 // wl_callback handlers
 //#####################
 static void wl_callback_handle_done(void* data, struct wl_callback* callback, uint32_t callback_data) {
     log("Received 'done' callback\n");
     wl_callback_destroy(callback);
     struct state_t* state = data;
-    state->frame_done = true;
-
-    struct buffer_t* working_buffer = state->buffer1.busy ? &state->buffer2 : &state->buffer1;
-    state->draw_frame(working_buffer->data);
-    log("Called draw_frame function\n");
-    wl_surface_attach(state->surface, working_buffer->wl_buffer, 0, 0);
-    wl_surface_damage_buffer(state->surface, 0, 0, INT32_MAX, INT32_MAX);
-    wl_surface_commit(state->surface);
-    working_buffer->busy = true;
-
+    choose_buffer_and_commit(state);
+    state->can_request_frame = true;
     state->last_frame_ms = callback_data;
 }
 static struct wl_callback_listener callback_listener = {
     .done = wl_callback_handle_done
 };
+
+
+//#####################
+// xdg_surface_handlers
+//#####################
+static void xdg_surface_handle_configure(void* data, struct xdg_surface *xdg_surface, uint32_t serial) {
+    struct state_t* state = data;
+    log("Received configure event\n");
+    xdg_surface_ack_configure(state->xdg_surface, serial);    
+    choose_buffer_and_commit(state);
+    state->can_request_frame = true;
+}
+static struct xdg_surface_listener xdg_surface_listener = {
+    .configure = xdg_surface_handle_configure
+};
+
 
 //#####################
 // wl_registry handlers
@@ -164,7 +159,7 @@ static void registry_handle_globals(void* data, struct wl_registry* registry,
                                 uint32_t name, const char* interface, uint32_t version) {
     struct state_t* state = data;
     printf("interface: %s, version: %d, name: %d\n", interface, version, name);
-    
+
     if (!strcmp(interface, wl_compositor_interface.name)) {
         state->compositor = wl_registry_bind(
             state->registry, 
@@ -207,6 +202,7 @@ static const struct wl_registry_listener registry_listener = {
 
 struct state_t* init(int width, int height) {
     struct state_t* state = malloc(sizeof(struct state_t));
+    state->can_request_frame = false;
     state->display = wl_display_connect(NULL);
     if (state->display == NULL) {
         log("Failed to connect to display\n");
@@ -303,15 +299,16 @@ void install_frame_drawer(struct state_t* state, void (*frame_drawer)(void* pixe
     state->draw_frame = frame_drawer;
 }
 
-bool ready_for_frame(struct state_t* state) {
-    return state->frame_done;
-}
-
 void request_new_frame(struct state_t* state) {
-    state->frame_done = false;
-    struct wl_callback* cb = wl_surface_frame(state->surface);
-    log("Sent frame request\n");
-    wl_callback_add_listener(cb, &callback_listener, state);
+    if (state->can_request_frame) {
+        state->can_request_frame = false;
+        struct wl_callback* cb = wl_surface_frame(state->surface);
+        log("Sent frame request\n");
+        wl_callback_add_listener(cb, &callback_listener, state);
+    }
+    else {
+        log("Failed to request a frame\n");
+    }
 }
 
 int get_last_frame_time_ms(struct state_t* state) {
