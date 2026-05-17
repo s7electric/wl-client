@@ -141,8 +141,8 @@ static struct wl_callback_listener callback_listener = {
 // xdg_surface_handlers
 //#####################
 static void xdg_surface_handle_configure(void* data, struct xdg_surface *xdg_surface, uint32_t serial) {
+    log("Received configure event, configuring\n");
     struct state_t* state = data;
-    log("Received configure event\n");
     xdg_surface_ack_configure(state->xdg_surface, serial);    
     choose_buffer_and_commit(state);
     state->can_request_frame = true;
@@ -157,9 +157,8 @@ static struct xdg_surface_listener xdg_surface_listener = {
 //#####################
 static void registry_handle_globals(void* data, struct wl_registry* registry, 
                                 uint32_t name, const char* interface, uint32_t version) {
-    struct state_t* state = data;
     printf("interface: %s, version: %d, name: %d\n", interface, version, name);
-
+    struct state_t* state = data;
     if (!strcmp(interface, wl_compositor_interface.name)) {
         state->compositor = wl_registry_bind(
             state->registry, 

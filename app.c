@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <sys/time.h>
+#include <bits/types/struct_timeval.h>
 
 #include "client.h"
 
@@ -11,13 +13,13 @@
 #define WIDTH 400
 #define HEIGHT 400
 #define FPS 144
-#define RPM 2
-#define delta_time_ms (RPM * 1000/FPS)
+#define RPS 1.5
+#define delta_time_us (suseconds_t)(1000 * 1000 / FPS)
 
 #define log(message) fprintf(stderr, message)
 
 static float dtheta = 2*M_PI/3;
-static float r = WIDTH/4;
+static float r = (float)WIDTH/4;
 float angle = 0;
 
 void put_pixels(void* pixel_buffer) {
@@ -27,8 +29,8 @@ void put_pixels(void* pixel_buffer) {
         HEIGHT,
         WIDTH
     );
-    float cx = WIDTH/2;
-    float cy = HEIGHT/2;
+    float cx = (float)WIDTH/2;
+    float cy = (float)HEIGHT/2;
     log("Created oc canvas\n");
     olivec_fill(oc, 0xFFFFFFFF);
     log("Filled oc canvas\n");
@@ -49,19 +51,24 @@ void put_pixels(void* pixel_buffer) {
 int main() {
     struct state_t* state = init(WIDTH, HEIGHT);
     install_frame_drawer(state, put_pixels);
+
+    struct timeval tv;
+    suseconds_t prev_frame_time, curr_time;
+    gettimeofday(&tv, NULL);
+    prev_frame_time = tv.tv_usec;
     request_new_frame(state);
-    int prev_time_ms = get_last_frame_time_ms(state);
 
     while(dispatch_events(state)) {
-        // int curr_time_ms = get_last_frame_time_ms(state);
-        // fprintf(stderr, "%d", curr_time_ms);
-        // if (curr_time_ms - prev_time_ms <= delta_time_ms) {
-        //     usleep(1000*(delta_time_ms - (curr_time_ms - prev_time_ms)));
-        // }
-        // prev_time_ms = curr_time_ms;
-        angle += 2*M_PI/FPS;
+        angle += (2*M_PI/FPS) * RPS;
         log("Incremented angle\n");
-        usleep(1000*delta_time_ms);
+
+        gettimeofday(&tv, NULL);
+        curr_time = tv.tv_usec;
+        if ((curr_time - prev_frame_time) < delta_time_us) {
+            usleep(delta_time_us - (curr_time - prev_frame_time));
+        }
+        gettimeofday(&tv, NULL);
+        prev_frame_time = tv.tv_usec;
         request_new_frame(state);
     }
 
