@@ -2,6 +2,8 @@
 
 !*.*
 !Makefile
+!example
 
+example/example
 *.o
 from-scratch-client.c
