@@ -1,14 +1,18 @@
 FLAGS = -Wall -g
-all: app libwlclient.a
 
-libwlclient.a: client.o xdg.o shm.o
+default: libwlclient.a
+
+all: example libwlclient.a
+
+libwlclient.a: wlclient.o xdg.o shm.o
 	ar rcs libwlclient.a $^
 
-app: app.o client.o xdg.o shm.o
-	cc $(FLAGS) $^ -o app -lwayland-client -lm
+example: example/example.c libwlclient.a
+	cc $(FLAGS) $^ -o example/example -lwayland-client -lm
 
-%.o: %.c
+%.o: %.c %.h
 	cc $(FLAGS) $< -c -o $@
 
 clean:
-	rm app *.o *.a
+	rm *.o *.a
+	rm example/example

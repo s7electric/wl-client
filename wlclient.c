@@ -11,7 +11,7 @@
 
 #include "xdg.h"
 #include "shm.h"
-#include "client.h"
+#include "wlclient.h"
 
 #define log(message) fprintf(stderr, message)
 #define VERSION_MIN (version > 4 ? version : 4)
